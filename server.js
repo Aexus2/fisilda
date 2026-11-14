@@ -273,7 +273,7 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-shar
   draw(text).toBlob(function(bl){blob=bl;if(img.src)URL.revokeObjectURL(img.src);img.src=URL.createObjectURL(bl);dlg.showModal()},'image/png')});
 sys.onclick=function(){navigator.share({files:[file()]}).catch(function(){})};
 document.getElementById('shdl').onclick=function(){var a=document.createElement('a');a.href=img.src;a.download='fisilda-mesaj.png';document.body.appendChild(a);a.click();a.remove()};
-document.getElementById('shx').href='https://twitter.com/intent/tweet?text='+encodeURIComponent('Bana anonim mesaj gönder 🤫')+'&url='+encodeURIComponent(LINK);
+document.getElementById('shx').href='https://x.com/intent/post?text='+encodeURIComponent('Bana anonim mesaj gönder 🤫')+'&url='+encodeURIComponent(LINK);
 document.getElementById('shclose').onclick=function(){dlg.close()};
 dlg.addEventListener('click',function(e){if(e.target===dlg)dlg.close()});
 })();
