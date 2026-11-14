@@ -143,6 +143,13 @@ input:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:1px;borde
 .msg .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:var(--mut)}
 .msg .foot form{display:inline}
 .msg .foot button{background:none;border:0;color:var(--mut);font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;padding:4px}
+.msg .foot .share{background:var(--acc);color:#fff;text-decoration:none;font-weight:700;border-radius:999px;padding:6px 14px}
+[hidden]{display:none!important}
+dialog{border:0;border-radius:22px;padding:18px;width:min(92vw,380px);max-height:94vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+dialog::backdrop{background:rgba(10,0,30,.6)}
+dialog img{display:block;height:min(40vh,420px);margin:0 auto 4px;border-radius:14px}
+dialog .btn{margin-top:10px;padding:12px}
+dialog small{display:block;color:var(--mut);margin-top:10px;text-align:center}
 .empty{text-align:center;color:#fff;padding:24px 8px}
 footer{margin-top:28px;color:rgba(255,255,255,.75);font-size:13px;text-align:center}
 `;
@@ -153,7 +160,7 @@ function page(res, { title, user, body, status = 200 }) {
     : '';
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
-    'Content-Security-Policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'",
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'same-origin',
     'Cache-Control': 'no-store',
@@ -225,6 +232,53 @@ document.getElementById('dice').addEventListener('click',()=>{t.value=P[Math.flo
 
 const fmtDate = (ms) => new Date(ms).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
+const SHARE_JS = String.raw`
+(function(){
+var dlg=document.getElementById('share'),img=document.getElementById('shimg'),blob=null,
+    LINK=document.getElementById('link').value,F='system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function wrap(c,text,maxW){var out=[];text.split(/\r?\n/).forEach(function(par){var line='';par.split(' ').forEach(function(word){
+  var t=line?line+' '+word:word;
+  if(c.measureText(t).width<=maxW){line=t;return}
+  if(line)out.push(line);
+  while(c.measureText(word).width>maxW){var i=word.length;while(i>1&&c.measureText(word.slice(0,i)).width>maxW)i--;out.push(word.slice(0,i));word=word.slice(i)}
+  line=word});out.push(line)});return out}
+// 1080x1920: Instagram/TikTok hikâye boyutu
+function draw(text){
+  var W=1080,H=1920,cv=document.createElement('canvas');cv.width=W;cv.height=H;var c=cv.getContext('2d');
+  var g=c.createLinearGradient(0,0,W,H);g.addColorStop(0,'#ff5f6d');g.addColorStop(1,'#7b2ff7');c.fillStyle=g;c.fillRect(0,0,W,H);
+  var cw=900,pad=64,headH=190,maxH=1000,size=68,lines,lh;
+  for(;;){c.font='700 '+size+'px '+F;lines=wrap(c,text,cw-pad*2);lh=Math.round(size*1.3);if(lines.length*lh<=maxH||size<=30)break;size-=4}
+  var maxLines=Math.floor(maxH/lh);
+  if(lines.length>maxLines){lines=lines.slice(0,maxLines);lines[maxLines-1]=lines[maxLines-1].slice(0,-2)+'…'}
+  var bodyH=Math.max(lines.length*lh,lh*2)+pad*2,ch=headH+bodyH,x=(W-cw)/2,y=(H-ch)/2-60;
+  c.save();c.shadowColor='rgba(20,0,60,.35)';c.shadowBlur=60;c.shadowOffsetY=24;rr(c,x,y,cw,ch,56);c.fillStyle='#fff';c.fill();c.restore();
+  c.save();rr(c,x,y,cw,ch,56);c.clip();c.fillStyle='#16131f';c.fillRect(x,y,cw,headH);c.restore();
+  c.textAlign='center';c.textBaseline='middle';
+  c.fillStyle='#fff';c.font='800 54px '+F;c.fillText('bana anonim mesaj gönder!',W/2,y+headH/2);
+  c.fillStyle='#16131f';c.font='700 '+size+'px '+F;
+  var ty=y+headH+pad+(bodyH-pad*2-lines.length*lh)/2+lh/2;
+  lines.forEach(function(l,i){c.fillText(l,W/2,ty+i*lh)});
+  c.fillStyle='#fff';c.font='800 60px '+F;c.fillText('fısılda 🤫',W/2,y+ch+130);
+  c.globalAlpha=.9;c.font='500 38px '+F;c.fillText(LINK.replace(/^https?:\/\//,''),W/2,y+ch+205);
+  return cv}
+function file(){return new File([blob],'fisilda-mesaj.png',{type:'image/png'})}
+var sys=document.getElementById('shsys'),hint=document.getElementById('shhint'),canFiles=false;
+try{canFiles=!!(navigator.canShare&&navigator.canShare({files:[new File(['x'],'a.png',{type:'image/png'})]}))}catch(e){}
+sys.hidden=!canFiles;
+hint.textContent=canFiles?"Paylaş düğmesine basıp Instagram, X ya da istediğin uygulamayı seç."
+  :'Bu tarayıcı doğrudan görsel paylaşamıyor: görseli indir, sonra Instagram ya da X gönderine ekle.';
+document.addEventListener('click',function(e){var b=e.target.closest('[data-share]');if(!b)return;
+  var text=b.closest('.msg').querySelector('.body').textContent;
+  draw(text).toBlob(function(bl){blob=bl;if(img.src)URL.revokeObjectURL(img.src);img.src=URL.createObjectURL(bl);dlg.showModal()},'image/png')});
+sys.onclick=function(){navigator.share({files:[file()]}).catch(function(){})};
+document.getElementById('shdl').onclick=function(){var a=document.createElement('a');a.href=img.src;a.download='fisilda-mesaj.png';document.body.appendChild(a);a.click();a.remove()};
+document.getElementById('shx').href='https://twitter.com/intent/tweet?text='+encodeURIComponent('Bana anonim mesaj gönder 🤫')+'&url='+encodeURIComponent(LINK);
+document.getElementById('shclose').onclick=function(){dlg.close()};
+dlg.addEventListener('click',function(e){if(e.target===dlg)dlg.close()});
+})();
+`;
+
 function inboxView(req, res, user, notice = '') {
   const msgs = db.prepare('SELECT id, body, read, created_at FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 200').all(user.id);
   db.prepare('UPDATE messages SET read = 1 WHERE user_id = ? AND read = 0').run(user.id);
@@ -234,6 +288,7 @@ function inboxView(req, res, user, notice = '') {
     ? msgs.map((m) => `<div class="card msg${m.read ? '' : ' new'}">
         <div class="body">${esc(m.body)}</div>
         <div class="foot"><span>${m.read ? '' : 'Yeni · '}${fmtDate(m.created_at)}</span><span>
+          <button type="button" class="share" data-share>Paylaş</button>
           <form method="post" action="/inbox/${m.id}/block" onsubmit="return confirm('Bu gönderen sana bir daha mesaj atamayacak. Emin misin?')"><button>Göndereni engelle</button></form>
           <form method="post" action="/inbox/${m.id}/delete" onsubmit="return confirm('Mesaj silinsin mi?')"><button>Sil</button></form>
         </span></div></div>`).join('')
@@ -248,6 +303,15 @@ function inboxView(req, res, user, notice = '') {
   <div class="linkbox"><input id="link" readonly value="${esc(link)}"><button id="copy" type="button">Kopyala</button></div>
 </div>
 ${list}
+<dialog id="share" aria-label="Mesajı paylaş">
+  <img id="shimg" alt="Paylaşılacak mesaj görseli">
+  <button class="btn" id="shsys" type="button">Paylaş (Instagram, X, WhatsApp…)</button>
+  <button class="btn alt" id="shdl" type="button">Görseli indir</button>
+  <a class="btn alt" id="shx" target="_blank" rel="noopener">X'te gönderi aç</a>
+  <button class="btn alt" id="shclose" type="button">Kapat</button>
+  <small id="shhint"></small>
+</dialog>
+<script>${SHARE_JS}</script>
 <script>
 const b=document.getElementById('copy'),l=document.getElementById('link');
 b.addEventListener('click',async()=>{
