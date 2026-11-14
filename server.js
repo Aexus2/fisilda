@@ -151,12 +151,24 @@ dialog img{display:block;height:min(40vh,420px);margin:0 auto 4px;border-radius:
 dialog .btn{margin-top:10px;padding:12px}
 dialog small{display:block;color:var(--mut);margin-top:10px;text-align:center}
 .empty{text-align:center;color:#fff;padding:24px 8px}
+.nav{display:flex;gap:8px;align-items:center}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stats div{background:#f6f4fb;border-radius:14px;padding:12px 14px}
+.stats b{display:block;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.stats span{font-size:13px;color:var(--mut)}
+.urow{border-top:1px solid var(--line);padding:12px 0;margin-top:12px}
+.urow>div>span:not(.tag){display:block;font-size:13px;color:var(--mut)}
+.urow .acts{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:14px}
+.urow .acts form{display:inline}
+.urow .acts button{background:none;border:0;padding:0;font:inherit;text-decoration:underline;cursor:pointer;color:inherit}
+.urow .acts .danger{color:#a3121f}
+.tag{font-size:11px;font-weight:700;background:var(--acc);color:#fff;border-radius:999px;padding:2px 8px;vertical-align:middle}
 footer{margin-top:28px;color:rgba(255,255,255,.75);font-size:13px;text-align:center}
 `;
 
 function page(res, { title, user, body, status = 200 }) {
   const nav = user
-    ? `<form method="post" action="/logout"><button>Çıkış</button></form>`
+    ? `<span class="nav">${isAdmin(user) ? '<a class="link" href="/admin">Yönetim</a>' : ''}<form method="post" action="/logout"><button>Çıkış</button></form></span>`
     : '';
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
@@ -323,6 +335,86 @@ b.addEventListener('click',async()=>{
 }
 
 // ---------- Rotalar ----------
+// ---------- Yönetim paneli ----------
+// Yöneticiler ADMIN_USERS ortam değişkeniyle belirlenir (virgülle ayrılmış kullanıcı adları).
+// Panel mesaj içeriklerini göstermez: yalnızca sayılar ve hesap işlemleri.
+const ADMINS = new Set((process.env.ADMIN_USERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+const isAdmin = (user) => !!user && ADMINS.has(user.username);
+
+function adminView(res, user, { q = '', notice = '', error = '' } = {}) {
+  const day = Date.now() - 864e5;
+  const n = (sql, ...a) => db.prepare(sql).get(...a).n;
+  const stats = [
+    ['Kullanıcı', n('SELECT COUNT(*) n FROM users')],
+    ['Son 24 saatte yeni üye', n('SELECT COUNT(*) n FROM users WHERE created_at > ?', day)],
+    ['Kayıtlı mesaj', n('SELECT COUNT(*) n FROM messages')],
+    ['Son 24 saatte mesaj', n('SELECT COUNT(*) n FROM messages WHERE created_at > ?', day)],
+  ];
+  const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%';
+  const users = db.prepare(`SELECT u.id, u.username, u.created_at,
+      (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) AS msgs,
+      (SELECT MAX(m.created_at) FROM messages m WHERE m.user_id = u.id) AS last_msg
+    FROM users u WHERE u.username LIKE ? ESCAPE '\\' ORDER BY u.id DESC LIMIT 100`).all(like);
+  const rows = users.map((u) => `<div class="urow">
+      <div><b>@${esc(u.username)}</b>${ADMINS.has(u.username) ? ' <span class="tag">yönetici</span>' : ''}
+        <span>Kayıt: ${fmtDate(u.created_at)} · ${u.msgs} mesaj${u.last_msg ? ' · son: ' + fmtDate(u.last_msg) : ''}</span></div>
+      <div class="acts">
+        <a href="/u/${esc(u.username)}">Sayfası</a>
+        <form method="post" action="/admin/users/${u.id}/reset" onsubmit="return confirm('@${esc(u.username)} için yeni şifre üretilsin mi? Açık oturumları kapanır.')"><button>Şifre sıfırla</button></form>
+        ${u.id === user.id ? '' : `<form method="post" action="/admin/users/${u.id}/delete" onsubmit="return confirm('@${esc(u.username)} hesabı ve tüm mesajları kalıcı olarak silinsin mi?')"><button class="danger">Hesabı sil</button></form>`}
+      </div></div>`).join('');
+  page(res, {
+    title: 'Yönetim — Fısılda', user, status: error ? 400 : 200,
+    body: `
+<div class="card">
+  <h2>Yönetim paneli</h2>
+  ${notice ? `<div class="err ok">${notice}</div>` : ''}
+  ${error ? `<div class="err">${esc(error)}</div>` : ''}
+  <div class="stats">${stats.map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('')}</div>
+</div>
+<div class="card">
+  <h2>Kullanıcılar</h2>
+  <form method="get" action="/admin" class="linkbox">
+    <input name="q" value="${esc(q)}" placeholder="Kullanıcı adı ara" autocapitalize="none" maxlength="20">
+    <button>Ara</button>
+  </form>
+  ${rows || '<p style="margin-top:14px">Eşleşen kullanıcı yok.</p>'}
+  ${users.length === 100 ? '<p style="margin-top:14px">İlk 100 sonuç gösteriliyor; daraltmak için ara.</p>' : ''}
+</div>
+<a class="btn alt" href="/inbox">Gelen kutuma dön</a>`,
+  });
+}
+
+async function adminRoutes(req, res, url, user) {
+  const p = url.pathname;
+  if (req.method === 'GET' && p === '/admin') {
+    const notice = url.searchParams.get('n') === 'deleted' ? 'Hesap silindi.' : '';
+    return adminView(res, user, { q: String(url.searchParams.get('q') || '').slice(0, 20), notice });
+  }
+  const m = p.match(/^\/admin\/users\/(\d+)\/(reset|delete)$/);
+  if (!m || req.method !== 'POST') return false;
+  const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(Number(m[1]));
+  if (!target) return adminView(res, user, { error: 'Kullanıcı bulunamadı.' });
+
+  if (m[2] === 'reset') {
+    const pw = crypto.randomBytes(7).toString('base64url');
+    db.prepare('UPDATE users SET pass = ? WHERE id = ?').run(hashPassword(pw), target.id);
+    if (target.id !== user.id) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id);
+    console.log(`[admin] ${user.username} -> şifre sıfırlama: ${target.username}`);
+    // Şifre yalnızca bu yanıtta gösterilir; adrese ya da günlüğe yazılmaz.
+    return adminView(res, user, { notice: `@${esc(target.username)} için yeni şifre: <b>${esc(pw)}</b> — bir daha gösterilmeyecek, şimdi not al.` });
+  }
+  if (target.id === user.id) return adminView(res, user, { error: 'Kendi hesabını buradan silemezsin.' });
+  db.exec('BEGIN');
+  try {
+    for (const t of ['messages', 'blocks', 'sessions']) db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(target.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(target.id);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  console.log(`[admin] ${user.username} -> hesap silme: ${target.username}`);
+  return redirect(res, '/admin?n=deleted');
+}
+
 const USERNAME_RE = /^[a-z0-9_.]{3,20}$/;
 const RESERVED = new Set(['admin', 'inbox', 'login', 'logout', 'register', 'root', 'destek', 'fisilda']);
 
@@ -368,6 +460,12 @@ async function handle(req, res) {
     if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(sha(token));
     res.setHeader('Set-Cookie', 'sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
     return redirect(res, '/');
+  }
+
+  if (p === '/admin' || p.startsWith('/admin/')) {
+    // Yönetici olmayanlara panelin varlığı belli edilmez.
+    if (isAdmin(user) && (await adminRoutes(req, res, url, user)) !== false) return;
+    return page(res, { title: 'Bulunamadı', status: 404, user, body: '<div class="card"><h1>Sayfa bulunamadı</h1><a class="btn" href="/">Ana sayfa</a></div>' });
   }
 
   if (p === '/inbox' && req.method === 'GET') {
